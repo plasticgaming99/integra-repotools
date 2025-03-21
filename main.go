@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,7 @@ func main() {
 	var (
 		reponame string
 		packs    []string
+		cpAll    bool
 	)
 
 	for _, st := range os.Args[1:] {
@@ -30,10 +32,11 @@ func main() {
 			case "-h":
 				puthelp()
 				return
-			case "--init":
+			case "--create-repo":
 				fmt.Print("repo name: ")
 				reponame = readline()
-				fmt.Println("setted to ", reponame)
+				fmt.Println("create repo to ./root/", reponame)
+				cpAll = true
 			}
 		} else {
 			packs = append(packs, st)
@@ -167,6 +170,59 @@ func main() {
 	arc.Archive(context.Background(), dbfile, files)
 
 	fmt.Println("Success")
+
+	if !cpAll {
+		os.Exit(0)
+	}
+
+	errcp := func(eror error) {
+		fmt.Println("error during copying archive files")
+		fmt.Println("try to copy manually")
+		log.Fatal(eror)
+	}
+
+	for _, s := range packs {
+		wd, err := os.Getwd()
+		if err != nil {
+			panic(err)
+		}
+		err = os.MkdirAll(filepath.Join("root", reponame), os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+		//correctS := filepath.Dir(s)
+		packname := filepath.Base(s)
+		packpath := filepath.Join(wd, "root", reponame, packname)
+		dst, err := os.OpenFile(packpath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0o644)
+		if err != nil {
+			errcp(err)
+		}
+		defer dst.Close()
+
+		file, err := os.Open(s)
+		if err != nil {
+			errcp(err)
+		}
+
+		_, err = io.Copy(dst, file)
+		if err != nil {
+			errcp(err)
+		}
+
+		intgdst, err := os.Create(filepath.Join(wd, "root", reponame, reponame+".db.tar.zst"))
+		if err != nil {
+			errcp(err)
+		}
+		arcfile, err := os.Open(filepath.Join(wd, "intg.db.tar.zst"))
+		if err != nil {
+			errcp(err)
+		}
+		_, err = io.Copy(intgdst, arcfile)
+		if err != nil {
+			errcp(err)
+		}
+
+	}
 }
 
 func puthelp() {
@@ -181,10 +237,12 @@ func puthelp() {
 	}*/
 
 	fmt.Println(`REPOTOOL USAGE
-  repotool [option] (packages)
+  repotool [option] (packages...)
   OPTIONS
-    -h     SHOW THIS HELP
-    --init INITIALIZE REPO`)
+    -h            SHOW THIS HELP
+    --init        INITIALIZE REPO
+    --create-repo CREATE REPO TO ./root DIRECTORY
+                  SHOULD USE SYMLINK`)
 }
 
 func readline() string {
